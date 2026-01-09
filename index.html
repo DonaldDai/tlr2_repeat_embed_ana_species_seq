@@ -1,0 +1,1523 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Similarity Matrix Heatmap</title>
+    <!-- 3Dmol.js -->
+    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+    <style>
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #222;
+        font-family: sans-serif;
+      }
+      canvas {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+      #heatmap {
+        z-index: 1;
+      }
+      #overlay {
+        z-index: 2;
+        pointer-events: auto; /* Capture mouse events */
+        cursor: crosshair;
+      }
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-size: 1.5rem;
+        pointer-events: none;
+        z-index: 100;
+      }
+      #controls {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        border: 1px solid #555;
+        padding: 0;
+        border-radius: 8px;
+        color: #eee;
+        z-index: 20;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        min-width: 280px;
+        user-select: none;
+      }
+      #controls-header {
+        background: #444;
+        padding: 8px 15px;
+        cursor: move;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #555;
+      }
+      #controls-content {
+        padding: 15px;
+      }
+      #controls.minimized #controls-content {
+        display: none;
+      }
+      #minimize-btn {
+        background: none;
+        border: 1px solid transparent;
+        color: #ccc;
+        font-weight: bold;
+        cursor: pointer;
+        width: 20px;
+        height: 20px;
+        line-height: 18px;
+        text-align: center;
+        border-radius: 4px;
+      }
+      #minimize-btn:hover {
+        color: #fff;
+        background: #555;
+      }
+      #controls input {
+        cursor: pointer;
+      }
+      .control-group {
+        margin-bottom: 10px;
+      }
+      .control-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 0.9rem;
+      }
+      .control-group input[type="range"] {
+        width: 100%;
+      }
+      .zoom-controls {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 10px;
+      }
+      .zoom-controls button {
+        flex: 1;
+        background: #555;
+        color: white;
+        border: 1px solid #666;
+        padding: 5px;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+      .zoom-controls button:hover {
+        background: #666;
+      }
+      .value-display {
+        float: right;
+        font-weight: bold;
+        color: #4db6ac;
+      }
+      #hoverInfo {
+        margin-top: 10px;
+        font-size: 0.8rem;
+        color: #aaa;
+        border-top: 1px solid #444;
+        padding-top: 5px;
+        min-height: 1.2em;
+      }
+
+      /* Context Menu & 3D Viewer CSS */
+      #context-menu {
+        display: none;
+        position: absolute;
+        background: #333;
+        border: 1px solid #555;
+        box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        min-width: 150px;
+      }
+      #context-menu ul {
+        list-style: none;
+        padding: 5px 0;
+        margin: 0;
+      }
+      #context-menu li {
+        padding: 8px 15px;
+        cursor: pointer;
+        color: #eee;
+        font-size: 0.9rem;
+      }
+      #context-menu li:hover {
+        background-color: #555;
+      }
+      #context-menu li.disabled {
+        color: #777;
+        cursor: default;
+      }
+      #context-menu li.disabled:hover {
+        background-color: transparent;
+      }
+
+      /* 3D Viewer Modal (Floating Window) */
+      #viewer-modal {
+        display: none;
+        position: fixed;
+        top: 100px;
+        left: 100px;
+        background: rgba(30, 30, 30, 0.95);
+        z-index: 2000;
+        flex-direction: column;
+        border: 1px solid #555;
+        border-radius: 8px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        /* Min width to hold two squares */
+        width: auto;
+      }
+      #viewer-header {
+        height: 40px;
+        background: #252525;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 15px;
+        border-bottom: 1px solid #444;
+        color: #eee;
+        cursor: move; /* Draggable handle */
+        border-radius: 8px 8px 0 0;
+        font-size: 0.9rem;
+      }
+      #viewer-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      #viewer-controls button {
+        background: #444;
+        border: 1px solid #555;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.8rem;
+      }
+      #viewer-controls button:hover {
+        background: #555;
+      }
+      #viewer-container {
+        display: flex;
+        background: #000;
+        padding: 5px;
+        gap: 5px;
+        border-radius: 0 0 8px 8px;
+      }
+      .mol-container {
+        width: 400px;
+        height: 400px;
+        position: relative;
+        background: #111;
+        /* Ensure square */
+      }
+      .mol-label {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 2px 6px;
+        color: white;
+        border-radius: 3px;
+        pointer-events: none;
+        z-index: 10;
+        font-size: 0.8em;
+      }
+      #close-viewer {
+        background: #b71c1c !important; /* Red */
+      }
+      
+      /* Toast Notification */
+      #toast {
+        visibility: hidden;
+        min-width: 250px;
+        background-color: #333;
+        color: #fff;
+        text-align: center;
+        border-radius: 4px;
+        padding: 12px;
+        position: fixed;
+        z-index: 3000;
+        left: 50%;
+        top: 20px;
+        transform: translateX(-50%);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        font-size: 0.9rem;
+        opacity: 0;
+        transition: opacity 0.3s, top 0.3s;
+        border: 1px solid #555;
+      }
+      #toast.show {
+        visibility: visible;
+        opacity: 1;
+        top: 40px;
+      }
+    </style>
+  </head>
+  <!-- 3d蛋白展示功能 -->
+  <!-- TODO: 补充hagfish llr pdb数据和其他sim matrix -->
+  <!-- TODO: 使用af获取hagfish pdb结构 -->
+  <!-- TODO: 增加使用说明 -->
+  
+
+  <body>
+    <div id="toast"></div>
+    <div id="loading">Loading data...</div>
+
+    <!-- Context Menu -->
+    <div id="context-menu">
+      <ul>
+        <li id="ctx-show-3d">Show 3D Sequence</li>
+      </ul>
+    </div>
+
+    <!-- 3D Viewer Modal -->
+    <div id="viewer-modal">
+      <div id="viewer-header">
+        <span>3D Sequence Viewer</span>
+        <div id="viewer-controls">
+          <label
+            ><input type="checkbox" id="sync-views" checked /> Sync Views</label
+          >
+          <button id="reset-3d-cameras">Reset Cameras</button>
+          <button id="close-viewer">Close</button>
+        </div>
+      </div>
+      <div id="viewer-container">
+        <div id="mol1" class="mol-container">
+          <div class="mol-label">Protein 1 (Rows)</div>
+        </div>
+        <div id="mol2" class="mol-container">
+          <div class="mol-label">Protein 2 (Cols)</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <div id="controls-header">
+        <span>Control & Settings</span>
+        <button id="minimize-btn">–</button>
+      </div>
+      <div id="controls-content">
+        <!-- New Data Selection Controls -->
+        <div class="control-group">
+          <label>Protein 1 (Rows)</label>
+          <select id="p1Select" style="width: 100%; margin-bottom: 5px;"></select>
+        </div>
+        <div class="control-group">
+          <label>Protein 2 (Cols)</label>
+          <select id="p2Select" style="width: 100%; margin-bottom: 5px;"></select>
+        </div>
+        <div class="control-group">
+          <label>Layer (1-24)</label>
+          <select id="layerSelect" style="width: 100%; margin-bottom: 5px;"></select>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #555; margin: 10px 0;">
+        
+        <div class="control-group">
+          <label>Zoom</label>
+          <div class="zoom-controls">
+            <button id="zoomInBtn" title="Zoom In">+</button>
+            <button id="zoomOutBtn" title="Zoom Out">-</button>
+            <button id="resetViewBtn" title="Reset View">Reset</button>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>
+            Similarity Threshold(Cosine)
+            <span id="thresholdVal" class="value-display">0.00</span>
+          </label>
+          <input
+            type="range"
+            id="thresholdSlider"
+            min="-1"
+            max="1"
+            step="0.01"
+            value="0.0"
+          />
+        </div>
+        <div id="hoverInfo">Hover over a cell</div>
+        <div
+          id="diagonalInfo"
+          class="info-block"
+          style="
+            display: none;
+            border-top: 1px dashed #444;
+            margin-top: 5px;
+            padding-top: 5px;
+            font-size: 0.8rem;
+            color: #4db6ac;
+          "
+        >
+          <div>Start: <span id="diagStart">-</span></div>
+          <div>End: <span id="diagEnd">-</span></div>
+          <div>Length: <span id="diagLen">-</span></div>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="heatmap"></canvas>
+    <canvas id="overlay"></canvas>
+
+    <script>
+      // --- State ---
+      let matrix = [];
+      let rows = 0;
+      let cols = 0;
+      let minVal = Infinity;
+      let maxVal = -Infinity;
+
+      // Configuration Data
+      const SPECIES = [
+          { name: 'Human[O60603]', id: 'O60603', pdb: './O60603.cif', startIdx: 20 },
+          { name: 'Lamprey[S4S1Q8]', id: 'S4S1Q8', pdb: './S4S1Q8.pdb', startIdx: 20 },
+          // { name: 'Hagfish[UPI00358FFA15]', id: 'UPI00358FFA15', pdb: '', startIdx: 0 }, // TODO: Add path & startIdx
+          { name: 'Leech[T1EUA2]', id: 'T1EUA2', pdb: './AF-T1EUA2-F1-model_v6.pdb', startIdx: 20 }, // TODO: Add path & startIdx
+          { name: 'Ciona[F6SGF2]', id: 'F6SGF2', pdb: './AF-F6SGF2-F1-model_v6.pdb', startIdx: 10 }  // TODO: Add path & startIdx
+      ];
+      
+      const LAYERS = Array.from({length: 24}, (_, i) => i + 1);
+
+      // Current Selection State
+      let currentP1 = SPECIES[0];
+      let currentP2 = SPECIES[1];
+      let currentLayer = 16;
+
+      // Matrix Configuration (Mutable)
+      let matrixConfig = {
+          rowStart: 20, 
+          colStart: 20
+      };
+
+      // Helper to generate Data Config (User to customize this)
+      function getDatasetConfig(p1, p2, layer) {
+          // TODO: Customize this logic to match your file naming convention
+          // E.g., sim_matrix_O60603_S4S1Q8_l1.csv
+          // For valid demo, we default to the existing file if defaults match, else try to construct
+          
+          // Placeholder logic:
+          // let filename = "sim_matrix.csv"; 
+          // Real logic example:
+          const filename = `./cross_sim_matrix_${p1.name}_vs_${p2.name}_win_3_layer_${layer}.csv`;
+          
+          return {
+              matrixUrl: filename,
+              rowStart: p1.startIdx,
+              colStart: p2.startIdx
+          };
+      }
+
+      // Layout state
+      const margin = 40;
+
+      // Transform state
+      let zoom = 1;
+      let panX = 0;
+      let panY = 0;
+      let isPanning = false;
+      let lastPanX = 0;
+      let lastPanY = 0;
+
+      // Interaction state
+      let similarityThreshold = 0.0;
+
+      // --- DOM Elements ---
+      const heatmapCanvas = document.getElementById("heatmap");
+      const overlayCanvas = document.getElementById("overlay");
+      const ctxHeatmap = heatmapCanvas.getContext("2d");
+      const ctxOverlay = overlayCanvas.getContext("2d");
+      const loadingEl = document.getElementById("loading");
+      const thresholdSlider = document.getElementById("thresholdSlider");
+      const thresholdDisplay = document.getElementById("thresholdVal");
+      const hoverInfo = document.getElementById("hoverInfo");
+
+      // --- Viridis Colormap ---
+      const viridisStops = [
+        { t: 0.0, color: [68, 1, 84] }, // #440154
+        { t: 0.125, color: [72, 35, 116] },
+        { t: 0.25, color: [64, 67, 135] },
+        { t: 0.375, color: [53, 95, 141] },
+        { t: 0.5, color: [42, 118, 142] }, // #21918c
+        { t: 0.625, color: [33, 144, 141] },
+        { t: 0.75, color: [39, 173, 129] },
+        { t: 0.875, color: [92, 200, 99] }, // #5ec962
+        { t: 1.0, color: [253, 231, 37] }, // #fde725
+      ];
+
+      function getViridisColor(t) {
+        t = Math.max(0, Math.min(1, t));
+        let lower = viridisStops[0];
+        let upper = viridisStops[viridisStops.length - 1];
+
+        for (let i = 0; i < viridisStops.length - 1; i++) {
+          if (t >= viridisStops[i].t && t <= viridisStops[i + 1].t) {
+            lower = viridisStops[i];
+            upper = viridisStops[i + 1];
+            break;
+          }
+        }
+
+        const range = upper.t - lower.t;
+        const rangeT = (t - lower.t) / range;
+
+        const r = Math.round(
+          lower.color[0] + (upper.color[0] - lower.color[0]) * rangeT
+        );
+        const g = Math.round(
+          lower.color[1] + (upper.color[1] - lower.color[1]) * rangeT
+        );
+        const b = Math.round(
+          lower.color[2] + (upper.color[2] - lower.color[2]) * rangeT
+        );
+
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+
+      // --- Core Functions ---
+
+      async function init() {
+        try {
+          // Resize canvases to window
+          resizeCanvases();
+
+          // Populate Selectors
+            const p1Select = document.getElementById('p1Select');
+            const p2Select = document.getElementById('p2Select');
+            const layerSelect = document.getElementById('layerSelect');
+
+            SPECIES.forEach((s, idx) => {
+                const opt1 = new Option(s.name, idx);
+                const opt2 = new Option(s.name, idx);
+                p1Select.add(opt1);
+                p2Select.add(opt2);
+            });
+            // Set defaults (Human vs Lamprey)
+            p1Select.value = 0;
+            p2Select.value = 1;
+
+            LAYERS.forEach(l => {
+                layerSelect.add(new Option(l, l));
+            });
+            layerSelect.value = 16;
+
+            // Event Listeners for Change
+            const refreshData = () => {
+                currentP1 = SPECIES[p1Select.value];
+                currentP2 = SPECIES[p2Select.value];
+                currentLayer = parseInt(layerSelect.value);
+                loadData();
+            };
+
+            p1Select.addEventListener('change', refreshData);
+            p2Select.addEventListener('change', refreshData);
+            layerSelect.addEventListener('change', refreshData);
+
+            // Initial Load
+            refreshData(); 
+
+          // Event Listeners
+          window.addEventListener("resize", () => {
+            resizeCanvases();
+            drawHeatmap();
+          });
+
+          thresholdSlider.addEventListener("input", (e) => {
+            similarityThreshold = parseFloat(e.target.value);
+            thresholdDisplay.textContent = similarityThreshold.toFixed(2);
+            createOverlayDisplay();
+          });
+
+          overlayCanvas.addEventListener("mousemove", handleMouseMove);
+          overlayCanvas.addEventListener("mouseleave", () => {
+            lastHoverCoords = null;
+            createOverlayDisplay(); // Will redraw selectedCell if exists, or clear execution
+            if (!selectedCell) {
+              hoverInfo.textContent = "Hover over a cell";
+            }
+          });
+        } catch (err) {
+          console.error(err);
+          loadingEl.textContent = "Error: " + err.message;
+        }
+      }
+
+      async function loadData() {
+          loadingEl.style.display = "block";
+          loadingEl.textContent = `Loading ${currentP1.name} vs ${currentP2.name} (Layer ${currentLayer})...`;
+          
+          try {
+              // Reset State
+              matrix = [];
+              selectedCell = null;
+              lastHoverCoords = null;
+              
+              const config = getDatasetConfig(currentP1, currentP2, currentLayer);
+              matrixConfig.rowStart = config.rowStart;
+              matrixConfig.colStart = config.colStart;
+
+              const response = await fetch(config.matrixUrl);
+              if (!response.ok) throw new Error(`Failed to load ${config.matrixUrl}`);
+              const text = await response.text();
+
+              parseData(text);
+              
+              loadingEl.style.display = "none";
+              drawHeatmap();
+              createOverlayDisplay(); // Clear overlay
+
+              // If viewer is open, reload models
+              if (viewerModal.style.display !== 'none') {
+                  load3DModelsForCurrentSelection();
+              }
+
+          } catch (err) {
+              console.error(err);
+              loadingEl.textContent = "Error: " + err.message;
+          }
+      }
+
+      function resizeCanvases() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        // Set display size (css properties)
+        heatmapCanvas.style.width = w + "px";
+        heatmapCanvas.style.height = h + "px";
+        overlayCanvas.style.width = w + "px";
+        overlayCanvas.style.height = h + "px";
+
+        // Set actual size in memory (scaled to account for extra pixel density)
+        heatmapCanvas.width = Math.floor(w * dpr);
+        heatmapCanvas.height = Math.floor(h * dpr);
+        overlayCanvas.width = Math.floor(w * dpr);
+        overlayCanvas.height = Math.floor(h * dpr);
+
+        // Normalize coordinate system to use css pixels
+        ctxHeatmap.scale(dpr, dpr);
+        ctxOverlay.scale(dpr, dpr);
+      }
+
+      function parseData(csvText) {
+        const lines = csvText.trim().split("\n");
+        const startRow = lines[0].startsWith("0,1,2") ? 1 : 0;
+
+        matrix = [];
+        minVal = Infinity;
+        maxVal = -Infinity;
+
+        for (let i = startRow; i < lines.length; i++) {
+          // Handle empty lines at end
+          if (!lines[i].trim()) continue;
+
+          const rowVals = lines[i].split(",").map((v) => {
+            const n = parseFloat(v);
+            if (isNaN(n)) return 0;
+            if (n < minVal) minVal = n;
+            if (n > maxVal) maxVal = n;
+            return n;
+          });
+          matrix.push(rowVals);
+        }
+
+        rows = matrix.length;
+        cols = matrix[0] ? matrix[0].length : 0;
+        console.log(
+          `Loaded ${rows}x${cols} matrix. Range: [${minVal}, ${maxVal}]`
+        );
+      }
+
+      function drawHeatmap() {
+        if (!rows || !cols) return;
+
+        const viewW = window.innerWidth;
+        const viewH = window.innerHeight;
+        const drawW = viewW - 2 * margin;
+        const drawH = viewH - 2 * margin;
+
+        if (drawW <= 0 || drawH <= 0) return;
+
+        // Calculate base cell size (fit to screen at zoom 1)
+        const baseCellW = drawW / cols;
+        const baseCellH = drawH / rows;
+
+        // Actual cell size
+        const cellW = baseCellW * zoom;
+        const cellH = baseCellH * zoom;
+
+        ctxHeatmap.clearRect(0, 0, viewW, viewH);
+
+        // 1. Draw Axes Labels (Outside clip)
+        ctxHeatmap.fillStyle = "#ccc";
+        ctxHeatmap.textAlign = "center";
+        ctxHeatmap.textBaseline = "middle";
+        ctxHeatmap.font = "10px sans-serif";
+
+        // Determine visible range to only draw needed labels
+        // Visible X range: margin to viewW - margin
+        // Cell X: margin + panX + c * cellW
+        // Visible condition: x + cellW > margin && x < viewW - margin
+
+        const startCol = Math.floor(-panX / cellW);
+        const endCol = Math.floor((drawW - panX) / cellW) + 1;
+
+        const startRow = Math.floor(-panY / cellH);
+        const endRow = Math.floor((drawH - panY) / cellH) + 1;
+
+        const cMin = Math.max(0, startCol);
+        const cMax = Math.min(cols, endCol);
+        const rMin = Math.max(0, startRow);
+        const rMax = Math.min(rows, endRow);
+
+        // -- Indices Drawing Logic --
+        
+        // Draw Col Indices (Top/Bottom)
+        for (let c = cMin; c < cMax; c++) {
+            const realIdx = c + matrixConfig.colStart + 1;
+            // Check visibility conditions
+            const isStart = (c === 0);
+            const isEnd = (c === cols - 1);
+            const isMajor = (realIdx % 50 === 0);
+
+            if (isStart || isEnd || isMajor) {
+                const x = margin + panX + c * cellW + cellW / 2;
+                if (x < margin || x > viewW - margin) continue;
+
+                ctxHeatmap.fillText(realIdx, x, margin / 2);
+                ctxHeatmap.fillText(realIdx, x, viewH - margin / 2);
+            }
+        }
+
+        // Draw Row Indices (Left/Right)
+        for (let r = rMin; r < rMax; r++) {
+            const realIdx = r + matrixConfig.rowStart + 1;
+            
+            const isStart = (r === 0);
+            const isEnd = (r === rows - 1);
+            const isMajor = (realIdx % 50 === 0);
+
+            if (isStart || isEnd || isMajor) {
+                const y = margin + panY + r * cellH + cellH / 2;
+                if (y < margin || y > viewH - margin) continue;
+
+                ctxHeatmap.fillText(realIdx, margin / 2, y);
+                ctxHeatmap.fillText(realIdx, viewW - margin / 2, y);
+            }
+        }
+
+        // 2. Draw Heatmap (Clipped)
+        ctxHeatmap.save();
+        ctxHeatmap.beginPath();
+        ctxHeatmap.rect(margin, margin, drawW, drawH);
+        ctxHeatmap.clip();
+
+        const opacity = cellW < 4 ? 0.15 : 0.3;
+        ctxHeatmap.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
+        ctxHeatmap.lineWidth = 0.5;
+
+        // Draw visible cells only
+        for (let r = rMin; r < rMax; r++) {
+          for (let c = cMin; c < cMax; c++) {
+            const val = matrix[r][c];
+            const norm = (val - minVal) / (maxVal - minVal);
+
+            // Transform coordinates
+            const x = margin + panX + c * cellW;
+            const y = margin + panY + r * cellH;
+
+            // Integer rounding to avoid gaps? float is usually fine for canvas with translation
+            // But prevent sub-pixel gaps by overdrawing slightly or stroke
+            ctxHeatmap.fillStyle = getViridisColor(norm);
+            ctxHeatmap.fillRect(x, y, cellW, cellH);
+            ctxHeatmap.strokeRect(x, y, cellW, cellH);
+          }
+        }
+        ctxHeatmap.restore();
+      }
+
+      // --- Interaction ---
+
+      let lastHoverCoords = null; // {r, c}
+      let selectedCell = null; // {r, c, diagData} - Frozen state
+
+      // Diagonal Calculation Logic
+      function getDiagonalData(r0, c0) {
+        // Check threshold. If current cell is below threshold, it's just a single point or no line.
+        if (matrix[r0][c0] <= similarityThreshold) {
+          return {
+            points: [{ r: r0, c: c0 }],
+            start: { r: r0, c: c0 },
+            end: { r: r0, c: c0 },
+            length: 1,
+          };
+        }
+
+        // Find Start (Trace backwards: r-1, c-1)
+        let r = r0,
+          c = c0;
+        while (r > 0 && c > 0 && matrix[r - 1][c - 1] > similarityThreshold) {
+          r--;
+          c--;
+        }
+        const start = { r, c };
+
+        // Trace Forward to collect points
+        const points = [];
+        while (r < rows && c < cols && matrix[r][c] > similarityThreshold) {
+          points.push({ r, c });
+          r++;
+          c++;
+        }
+        const end = points[points.length - 1];
+
+        return {
+          points,
+          start,
+          end,
+          length: points.length,
+        };
+      }
+
+      function createOverlayDisplay(r, c) {
+        // If we have a selection, use that for the diagonal highlight
+        // If NOT, use the hover r,c
+
+        // Actually requirement: "fix the highlighted diagonal... simultaneously fill clicked point"
+        // So:
+        // 1. Orange Cell: Always the 'selectedCell' (if exists).
+        // 2. Red Diagonal:
+        //    - If selectedCell exists: Show ITS diagonal.
+        //    - Else: Show hover diagonal.
+
+        ctxOverlay.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const drawSpaceW = w - 2 * margin;
+        const drawSpaceH = h - 2 * margin;
+
+        if (drawSpaceW <= 0 || drawSpaceH <= 0) return;
+
+        const baseCellW = drawSpaceW / cols;
+        const baseCellH = drawSpaceH / rows;
+        const cellW = baseCellW * zoom;
+        const cellH = baseCellH * zoom;
+
+        ctxOverlay.save();
+        ctxOverlay.beginPath();
+        ctxOverlay.rect(margin, margin, drawSpaceW, drawSpaceH);
+        ctxOverlay.clip();
+
+        // Draw Crosshair
+        if (lastHoverCoords) {
+            const hx = margin + panX + lastHoverCoords.c * cellW + cellW / 2;
+            const hy = margin + panY + lastHoverCoords.r * cellH + cellH / 2;
+
+            ctxOverlay.beginPath();
+            ctxOverlay.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctxOverlay.lineWidth = 1;
+            ctxOverlay.setLineDash([4, 4]);
+
+            // Vertical
+            ctxOverlay.moveTo(hx, margin);
+            ctxOverlay.lineTo(hx, margin + drawSpaceH);
+
+            // Horizontal
+            ctxOverlay.moveTo(margin, hy);
+            ctxOverlay.lineTo(margin + drawSpaceW, hy);
+
+            ctxOverlay.stroke();
+            ctxOverlay.setLineDash([]);
+        }
+
+        // Determine what diagonal to draw
+        let targetDiag = null;
+        if (selectedCell) {
+          // Determine if we need to re-calculate (e.g. threshold changed or zoom calc needed)
+          // We store r,c. We should re-calc diagonal points on render to match threshold
+          selectedCell.diagData = getDiagonalData(
+            selectedCell.r,
+            selectedCell.c
+          );
+          targetDiag = selectedCell.diagData;
+        } else if (lastHoverCoords) {
+          targetDiag = getDiagonalData(lastHoverCoords.r, lastHoverCoords.c);
+        }
+
+        // Draw Red Diagonal
+        if (targetDiag) {
+          ctxOverlay.beginPath();
+          ctxOverlay.lineWidth = Math.max(1, cellW / 4);
+          ctxOverlay.strokeStyle = "#ff2222";
+
+          for (const p of targetDiag.points) {
+            const x = margin + panX + p.c * cellW;
+            const y = margin + panY + p.r * cellH;
+            ctxOverlay.strokeRect(x, y, cellW, cellH);
+          }
+
+          // Update text info for diagonal
+          updateDiagonalInfoUI(targetDiag);
+        } else {
+          document.getElementById("diagonalInfo").style.display = "none";
+        }
+
+        // Draw Orange Selected Point
+        if (selectedCell) {
+          const x = margin + panX + selectedCell.c * cellW;
+          const y = margin + panY + selectedCell.r * cellH;
+
+          // Fill
+          ctxOverlay.fillStyle = "rgba(255, 165, 0, 0.8)"; // Orange
+          ctxOverlay.fillRect(x, y, cellW, cellH);
+          // Stroke
+          ctxOverlay.strokeStyle = "white";
+          ctxOverlay.lineWidth = 1;
+          ctxOverlay.strokeRect(x, y, cellW, cellH);
+        }
+
+        ctxOverlay.restore();
+      }
+
+      function updateDiagonalInfoUI(diagData) {
+        const el = document.getElementById("diagonalInfo");
+        el.style.display = "block";
+        document.getElementById(
+          "diagStart"
+        ).textContent = `(${diagData.start.r + matrixConfig.rowStart + 1}, ${diagData.start.c + matrixConfig.colStart + 1})`;
+        document.getElementById(
+          "diagEnd"
+        ).textContent = `(${diagData.end.r + matrixConfig.rowStart + 1}, ${diagData.end.c + matrixConfig.colStart + 1})`;
+        document.getElementById("diagLen").textContent = diagData.length;
+      }
+
+      function handleMouseMove(e) {
+        if (!rows || !cols) return;
+
+        // Handle Panning
+        if (isPanning) {
+          const deltaX = e.clientX - lastPanX;
+          const deltaY = e.clientY - lastPanY;
+          panX += deltaX;
+          panY += deltaY;
+          lastPanX = e.clientX;
+          lastPanY = e.clientY;
+          drawHeatmap();
+          createOverlayDisplay(); // Re-draw overlay (selection needs to move)
+          return;
+        }
+
+        const rect = overlayCanvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // ... Calc grid coords ...
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const drawSpaceW = w - 2 * margin;
+        const drawSpaceH = h - 2 * margin;
+
+        // Check bounds
+        if (
+          mouseX < margin ||
+          mouseX > w - margin ||
+          mouseY < margin ||
+          mouseY > h - margin
+        ) {
+          if (!selectedCell) {
+            ctxOverlay.clearRect(0, 0, w, h);
+          } else {
+            // Start of handling "leave but keep selection"
+            // If selected, we redraw to ensure no hover artifacts?
+            // createOverlayDisplay handles cleaning.
+            createOverlayDisplay();
+          }
+          if (!selectedCell) hoverInfo.textContent = "Hover over a cell";
+          lastHoverCoords = null;
+          return;
+        }
+
+        const baseCellW = drawSpaceW / cols;
+        const baseCellH = drawSpaceH / rows;
+        const cellW = baseCellW * zoom;
+        const cellH = baseCellH * zoom;
+
+        const c = Math.floor((mouseX - margin - panX) / cellW);
+        const r = Math.floor((mouseY - margin - panY) / cellH);
+
+        if (c >= 0 && c < cols && r >= 0 && r < rows) {
+          lastHoverCoords = { r, c };
+
+          // Show hover text always
+          const val = matrix[r][c];
+          hoverInfo.textContent = `Cell (${r + matrixConfig.rowStart + 1}, ${c + matrixConfig.colStart + 1}): ${val.toFixed(4)}`;
+
+          createOverlayDisplay();
+        } else {
+          lastHoverCoords = null;
+          createOverlayDisplay();
+        }
+      }
+
+      // Click to Select/Freeze
+      let dragStartX = 0;
+      let dragStartY = 0;
+
+      overlayCanvas.addEventListener("click", (e) => {
+        // Check if it was a drag or a click
+        const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+        if (dist > 5) return; // It was a drag, ignore click
+
+        if (lastHoverCoords) {
+          if (
+            selectedCell &&
+            selectedCell.r === lastHoverCoords.r &&
+            selectedCell.c === lastHoverCoords.c
+          ) {
+            // Deselect if clicking same?
+            selectedCell = null;
+          } else {
+            // Start of handling "leave but keep selection"
+            // If we want to guarantee the diagonal data is fresh:
+            selectedCell = { r: lastHoverCoords.r, c: lastHoverCoords.c };
+          }
+          createOverlayDisplay();
+        } else {
+          // Clicked outside grid?
+          selectedCell = null;
+          createOverlayDisplay();
+        }
+      });
+
+      // Add Zoom & Pan Events
+      overlayCanvas.addEventListener("mousedown", (e) => {
+        isPanning = true;
+        lastPanX = e.clientX;
+        lastPanY = e.clientY;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        overlayCanvas.style.cursor = "grabbing";
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (isPanning) {
+          isPanning = false;
+          overlayCanvas.style.cursor = "crosshair";
+        }
+      });
+
+      // Zoom Buttons Logic
+      const zoomInBtn = document.getElementById("zoomInBtn");
+      const zoomOutBtn = document.getElementById("zoomOutBtn");
+      const resetViewBtn = document.getElementById("resetViewBtn");
+
+      function applyZoom(factor) {
+        const newZoom = Math.min(Math.max(1, zoom * factor), 50);
+        if (newZoom === zoom) {
+          return;
+        }
+
+        // Zoom around center of drawing area
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        // Center of the viewport (drawing area)
+        const centerX = margin + (w - 2 * margin) / 2;
+        const centerY = margin + (h - 2 * margin) / 2;
+
+        const scaleRatio = newZoom / zoom;
+
+        panX = centerX - margin - (centerX - margin - panX) * scaleRatio;
+        panY = centerY - margin - (centerY - margin - panY) * scaleRatio;
+
+        zoom = newZoom;
+        drawHeatmap();
+
+        // If hovering, update highlight
+        createOverlayDisplay();
+      }
+
+      zoomInBtn.addEventListener("click", () => applyZoom(1.2));
+      zoomOutBtn.addEventListener("click", () => applyZoom(0.8333)); // 1/1.2 approx
+
+      resetViewBtn.addEventListener("click", () => {
+        zoom = 1;
+        panX = 0;
+        panY = 0;
+        drawHeatmap();
+        createOverlayDisplay();
+      });
+
+      // --- Drag Controls & Minimize ---
+      const controlsEl = document.getElementById("controls");
+      const headerEl = document.getElementById("controls-header");
+      const minimizeBtn = document.getElementById("minimize-btn");
+
+      let isDragging = false;
+      let dragOffsetX = 0;
+      let dragOffsetY = 0;
+
+      // Minimize logic
+      minimizeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        controlsEl.classList.toggle("minimized");
+        minimizeBtn.textContent = controlsEl.classList.contains("minimized")
+          ? "+"
+          : "–";
+      });
+
+      headerEl.addEventListener("mousedown", (e) => {
+        if (e.target === minimizeBtn) return;
+
+        isDragging = true;
+        dragOffsetX = e.clientX - controlsEl.getBoundingClientRect().left;
+        dragOffsetY = e.clientY - controlsEl.getBoundingClientRect().top;
+        headerEl.style.cursor = "grabbing";
+        // Switch from 'right' positioning to 'left' positioning to allow movement
+        controlsEl.style.right = "auto"; // Disable 'right' constraint
+        controlsEl.style.left = e.clientX - dragOffsetX + "px"; // Set initial left
+        controlsEl.style.top = e.clientY - dragOffsetY + "px";
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+
+        let newX = e.clientX - dragOffsetX;
+        let newY = e.clientY - dragOffsetY;
+
+        controlsEl.style.left = `${newX}px`;
+        controlsEl.style.top = `${newY}px`;
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (isDragging) {
+          isDragging = false;
+          headerEl.style.cursor = "move";
+        }
+      });
+
+      // --- Context Menu & 3D Viewer Logic ---
+
+      const contextMenu = document.getElementById("context-menu");
+      const show3DItem = document.getElementById("ctx-show-3d");
+      const viewerModal = document.getElementById("viewer-modal");
+      const closeViewerBtn = document.getElementById("close-viewer");
+      const resetCamerasBtn = document.getElementById("reset-3d-cameras");
+      const syncCheckbox = document.getElementById("sync-views");
+
+      let viewer1 = null;
+      let viewer2 = null;
+      let isSyncing = true; // Default sync
+
+      // Context Menu Event
+      overlayCanvas.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+
+        // Show menu at mouse position
+        contextMenu.style.display = "block";
+        contextMenu.style.left = `${e.clientX}px`;
+        contextMenu.style.top = `${e.clientY}px`;
+
+        // Enable/Disable based on selection
+        if (selectedCell) {
+          show3DItem.classList.remove("disabled");
+        } else {
+          show3DItem.classList.add("disabled");
+        }
+      });
+
+      // Hide Context Menu on Click
+      document.addEventListener("click", (e) => {
+        if (e.target.closest("#context-menu")) return;
+        contextMenu.style.display = "none";
+      });
+
+      function showToast(message) {
+        const toast = document.getElementById("toast");
+        toast.textContent = message;
+        toast.className = "show"; // Use className to ensure reset if multi-class
+        setTimeout(() => {
+            toast.className = toast.className.replace("show", "");
+        }, 3000);
+      }
+
+      // Show 3D Viewer Action
+      show3DItem.addEventListener("click", () => {
+        if (show3DItem.classList.contains("disabled")) {
+            showToast("Please select a continuous similarity diagonal first");
+            contextMenu.style.display = "none";
+            return;
+        }
+        contextMenu.style.display = "none";
+        open3DViewer();
+      });
+
+      closeViewerBtn.addEventListener("click", () => {
+        viewerModal.style.display = "none";
+      });
+
+      resetCamerasBtn.addEventListener("click", () => {
+        if (viewer1) viewer1.zoomTo();
+        if (viewer2) viewer2.zoomTo();
+      });
+
+      syncCheckbox.addEventListener("change", (e) => {
+        isSyncing = e.target.checked;
+      });
+
+      function open3DViewer() {
+        viewerModal.style.display = "flex";
+        
+        updateViewerLabels();
+
+        // Initialize Viewers if not exists
+        if (!viewer1 || !viewer2) {
+          init3DViewers();
+        } else {
+             // Check if models need update
+             if (viewer1.currentPdb !== currentP1.pdb || viewer2.currentPdb !== currentP2.pdb) {
+                 load3DModelsForCurrentSelection();
+             } else {
+                 update3DHighlights();
+             }
+        }
+
+        // Force layout update for 3Dmol canvas
+        setTimeout(() => {
+          if (viewer1) {
+            viewer1.resize();
+            viewer1.render();
+          }
+          if (viewer2) {
+            viewer2.resize();
+            viewer2.render();
+          }
+        }, 100);
+      }
+
+      function init3DViewers() {
+        const config = { backgroundColor: "#111" };
+        viewer1 = $3Dmol.createViewer("mol1", config);
+        viewer2 = $3Dmol.createViewer("mol2", config);
+
+        setupSync();
+        setupViewerDrag();
+        
+        load3DModelsForCurrentSelection();
+      }
+
+      function updateViewerLabels() {
+          const label1 = document.querySelector("#mol1 .mol-label");
+          const label2 = document.querySelector("#mol2 .mol-label");
+          if (label1) label1.textContent = `Protein 1 (Rows, ${currentP1.name})`;
+          if (label2) label2.textContent = `Protein 2 (Cols, ${currentP2.name})`;
+      }
+
+      function load3DModelsForCurrentSelection() {
+          if (!viewer1 || !viewer2) return;
+          
+          updateViewerLabels();
+          
+          viewer1.clear();
+          viewer2.clear();
+          
+          loadModelToViewer(currentP1.pdb, viewer1);
+          loadModelToViewer(currentP2.pdb, viewer2);
+      }
+
+      function loadModelToViewer(url, viewer) {
+          viewer.currentPdb = url; // Mark as loaded
+          
+          if (!url) {
+            viewer.addLabel("PDB Path Not Set", {
+              position: { x: 0, y: 0, z: 0 },
+              backgroundColor: 0x555555,
+              fontSize: 14,
+            });
+            viewer.render();
+            return;
+          }
+
+          // Determine format
+          const cleanUrl = url.split("?")[0];
+          let format = "pdb";
+          if (cleanUrl.toLowerCase().endsWith(".cif")) {
+            format = "cif";
+          } else if (cleanUrl.toLowerCase().endsWith(".mmcif")) {
+            format = "mmcif";
+          }
+
+          fetch(url)
+            .then((r) => {
+                if(!r.ok) throw new Error("404");
+                return r.text();
+            })
+            .then((data) => {
+              viewer.addModel(data, format);
+              // Default style before highlighting
+              viewer.setStyle(
+                {},
+                { cartoon: { color: "#f1f1f1", opacity: 1 } }
+              );
+              viewer.zoomTo();
+              viewer.render();
+              update3DHighlights();
+            })
+            .catch((e) => {
+              console.error(e);
+              viewer.addLabel("Error loading " + url, {
+                position: { x: 0, y: 0, z: 0 },
+                backgroundColor: 0x880000,
+              });
+              viewer.render();
+            });
+      }
+
+      function setupViewerDrag() {
+        const el = document.getElementById("viewer-modal");
+        const handle = document.getElementById("viewer-header");
+        if (el.dataset.dragInitialized) return;
+
+        let isDragging = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        handle.addEventListener("mousedown", (e) => {
+          // Don't drag if clicking buttons
+          if (
+            e.target.tagName === "BUTTON" ||
+            e.target.tagName === "INPUT" ||
+            e.target.tagName === "LABEL"
+          )
+            return;
+
+          isDragging = true;
+          const rect = el.getBoundingClientRect();
+          dragOffsetX = e.clientX - rect.left;
+          dragOffsetY = e.clientY - rect.top;
+          handle.style.cursor = "grabbing";
+        });
+
+        window.addEventListener("mousemove", (e) => {
+          if (!isDragging) return;
+          e.preventDefault();
+          el.style.left = e.clientX - dragOffsetX + "px";
+          el.style.top = e.clientY - dragOffsetY + "px";
+        });
+
+        window.addEventListener("mouseup", () => {
+          if (isDragging) {
+            isDragging = false;
+            handle.style.cursor = "move";
+          }
+        });
+
+        el.dataset.dragInitialized = "true";
+      }
+
+      function update3DHighlights() {
+        if (!viewer1 || !viewer2 || !selectedCell) return;
+
+        // Ensure data exists
+        let diag = selectedCell.diagData;
+        if (!diag) {
+          diag = getDiagonalData(selectedCell.r, selectedCell.c);
+        }
+
+        // Indices (1-based assumption -> Config based)
+        const indices1 = diag.points.map((p) => p.r + matrixConfig.rowStart + 1);
+        const indices2 = diag.points.map((p) => p.c + matrixConfig.colStart + 1);
+        const clickedR = selectedCell.r + matrixConfig.rowStart + 1;
+        const clickedC = selectedCell.c + matrixConfig.colStart + 1;
+
+        // Apply Styles
+        const apply = (viewer, idxs, clickedIdx) => {
+          // Base (Non-highlighted) - Light Gray
+          viewer.setStyle({}, { cartoon: { color: "#e0e0e0", opacity: 0.5 } });
+          // Diagonal
+          viewer.addStyle(
+            { resi: idxs },
+            { cartoon: { color: "#FF4444", thickness: 0.4, opacity: 1.0 } }
+          );
+          // Clicked Point
+          viewer.addStyle(
+            { resi: clickedIdx },
+            {
+              stick: { radius: 0.3, colorscheme: "orangeCarbon" },
+              sphere: { scale: 0.5, color: "#FFA500" },
+            }
+          );
+
+          viewer.render();
+        };
+
+        apply(viewer1, indices1, clickedR);
+        apply(viewer2, indices2, clickedC);
+      }
+
+        function setupSync() {
+            let activeViewer = null;
+
+            // Quaternion math helpers
+            const qMult = (q1, q2) => {
+                const x1=q1[0], y1=q1[1], z1=q1[2], w1=q1[3];
+                const x2=q2[0], y2=q2[1], z2=q2[2], w2=q2[3];
+                return [
+                    w1*x2 + x1*w2 + y1*z2 - z1*y2,
+                    w1*y2 - x1*z2 + y1*w2 + z1*x2,
+                    w1*z2 + x1*y2 - y1*x2 + z1*w2,
+                    w1*w2 - x1*x2 - y1*y2 - z1*z2
+                ];
+            };
+            const qInv = (q) => {
+                const len2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+                if(len2 === 0) return [0,0,0,1];
+                const invLen2 = 1/len2;
+                return [-q[0]*invLen2, -q[1]*invLen2, -q[2]*invLen2, q[3]*invLen2];
+            };
+            const applyQuat = (q, v) => {
+                const x = v[0], y = v[1], z = v[2];
+                const qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+                const ix = qw * x + qy * z - qz * y;
+                const iy = qw * y + qz * x - qx * z;
+                const iz = qw * z + qx * y - qy * x;
+                const iw = -qx * x - qy * y - qz * z;
+                return [
+                    ix * qw + iw * -qx + iy * -qz - iz * -qy,
+                    iy * qw + iw * -qy + iz * -qx - ix * -qz,
+                    iz * qw + iw * -qz + ix * -qy - iy * -qx
+                ];
+            };
+
+            // Capture which viewer is being interacted with
+            const track = (v, el) => {
+                el.addEventListener('mousedown', () => activeViewer = v, {passive: true});
+                el.addEventListener('touchstart', () => activeViewer = v, {passive: true});
+                el.addEventListener('wheel', () => activeViewer = v, {passive: true});
+            };
+            
+            track(viewer1, document.getElementById('mol1'));
+            track(viewer2, document.getElementById('mol2'));
+
+            let lastActiveView = null;
+            let lastActiveViewer = null;
+            let wasSyncing = false;
+
+            // Sync loop
+            const syncLoop = () => {
+                if (viewerModal.style.display === 'none') {
+                    requestAnimationFrame(syncLoop);
+                    return;
+                }
+
+                if (!isSyncing || !activeViewer) {
+                    wasSyncing = false;
+                    lastActiveView = null;
+                    requestAnimationFrame(syncLoop);
+                    return;
+                }
+
+                // If just started syncing or switched viewer, reset baseline
+                if (!wasSyncing || activeViewer !== lastActiveViewer) {
+                    wasSyncing = true;
+                    lastActiveViewer = activeViewer;
+                    lastActiveView = activeViewer.getView(); // Assuming new array
+                    requestAnimationFrame(syncLoop);
+                    return;
+                }
+
+                const currentView = activeViewer.getView();
+                const other = (activeViewer === viewer1) ? viewer2 : viewer1;
+
+                if (other && lastActiveView) {
+                    // Check for changes
+                    let changed = false;
+                    for (let i = 0; i < 8; i++) {
+                        if (Math.abs(currentView[i] - lastActiveView[i]) > 1e-6) {
+                            changed = true; 
+                            break; 
+                        }
+                    }
+
+                    if (changed) {
+                        // Calculate Deltas from previous frame
+                        // View: [x, y, z, zoom, qx, qy, qz, qw]
+                        
+                        const dTx = currentView[0] - lastActiveView[0];
+                        const dTy = currentView[1] - lastActiveView[1];
+                        const dTz = currentView[2] - lastActiveView[2];
+                        
+                        const zoomRatio = (lastActiveView[3] !== 0) ? (currentView[3] / lastActiveView[3]) : 1.0;
+                        
+                        // Rot delta: qDelta = qCurr * qPrev^-1
+                        const qPrev = lastActiveView.slice(4, 8);
+                        const qCurr = currentView.slice(4, 8);
+                        const qDelta = qMult(qCurr, qInv(qPrev));
+                        
+                        // Apply to Other
+                        const otherView = other.getView();
+                        
+                        // Zoom Correction: Match screen-space displacement sensitivity
+                        const activeZoom = currentView[3];
+                        const otherZoom = otherView[3];
+                        const zoomScale = (otherZoom !== 0 && activeZoom !== 0) ? (activeZoom / otherZoom) : 1.0;
+
+                        // Map Translation from Active Camera Space to Other Camera Space
+                        // 1. Get Delta in Active World Space
+                        const vDeltaWorld = [dTx, dTy, dTz];
+                        
+                        // 2. Transform to Active Camera Space (Screen Space Delta)
+                        //    Assumption: Q is "World-to-Camera" rotation.
+                        //    CamVec = Q * WorldVec
+                        const vDeltaCamera = applyQuat(qCurr, vDeltaWorld);
+                        
+                        // 3. Transform to Other World Space
+                        //    Assumption: Q (World-to-Cam) -> Inverse Q is Cam-to-World
+                        //    WorldVec = InvQ * CamVec
+                        const qOtherCurr = otherView.slice(4, 8);
+                        const vDeltaOtherWorld = applyQuat(qInv(qOtherCurr), vDeltaCamera);
+
+                        // Apply Translation with Zoom Scale
+                        otherView[0] += vDeltaOtherWorld[0] * zoomScale;
+                        otherView[1] += vDeltaOtherWorld[1] * zoomScale;
+                        otherView[2] += vDeltaOtherWorld[2] * zoomScale;
+                        
+                        // Apply Zoom (Multiplicative)
+                        otherView[3] *= zoomRatio;
+                        
+                        // Apply Rotation: qNew = qDelta * qOld
+                        const qOther = otherView.slice(4, 8);
+                        const qOtherNew = qMult(qDelta, qOther);
+                        otherView[4] = qOtherNew[0];
+                        otherView[5] = qOtherNew[1];
+                        otherView[6] = qOtherNew[2];
+                        otherView[7] = qOtherNew[3];
+                        
+                        other.setView(otherView);
+                        other.render();
+                    }
+                }
+                
+                // Update baseline for next frame
+                lastActiveView = currentView;
+                
+                requestAnimationFrame(syncLoop);
+            };
+            syncLoop();
+        }
+
+      init();
+    </script>
+  </body>
+</html>
